@@ -1,0 +1,146 @@
+###宏基因组差异基因
+setwd("F:\\原downloads\\崔伟丽毕业论文图\\宏基因组")
+df <- read.delim("KO_depth_table2.txt",row.names = 1) 
+colSums(df)
+# #tpm值
+# df1 <- as.data.frame(t(t(df)/colSums(df)))*1000000
+# colSums(df1)
+#经过标准化基因长度的丰度表
+df2 <- ceiling(df)
+# colnames(df2) <- gsub("\\.","",colnames(df2))
+gene_all <- read_excel("nc参考文献功能基因.xlsx")
+gene_N <- gene_all[gene_all$Category == "Nitrogen",]
+gene_C <- read.csv("C_cycle4.csv")
+gene_P <- read.csv("P_cycle4.csv")
+# sum(rownames(df2) %in% N$KO)
+# N$KO[!N$KO %in% rownames(df2)]
+N <- df2[rownames(df2) %in% gene_N$KO,]
+P <- df2[rownames(df2) %in% gene_P$KOEntry,]
+C <- df2[rownames(df2) %in% gene_C$KOEntry,]
+
+library(edgeR)
+sample <- rep(c("CK","N1","N2","O1","O2"),each = 4)
+list_abundance <- list(C,N,P)
+list_compare <- list(c(-1,1,0,0,0),c(-1,0,1,0,0),c(-1,0,0,1,0),c(-1,0,0,0,1))
+names(list_compare) <- c("N12CK","N22CK","O12CK","O22CK")
+output <- data.frame()
+for (i in 1:3) {
+  y <- DGEList(counts = list_abundance[[i]],group = sample)
+  # y$samples
+  # keep <- filterByExpr(y)
+  # y <- y[keep, , keep.lib.sizes=F]
+  y <- calcNormFactors(y)
+  # levels(y$samples$group)
+  design <- model.matrix(~0+sample, data=y$samples)
+  #注意在设置对比矩阵时，若contrast=c(-1,1,0,0)中第一个数字设置对比，一定要注意矩阵的设置方式
+  colnames(design) <- levels(y$samples$group)
+  y <- estimateDisp(y, design)
+  fit <- glmQLFit(y, design)
+  for (j in 1:4) {
+    qlf <- glmQLFTest(fit, contrast=list_compare[[j]])
+    tmm <- topTags(qlf,n=NULL)#选取top基因同时进行FDR多重校正
+    deg_asv <- tmm$table
+    deg_asv$description <- names(list_compare)[j]
+    deg_asv$KO <- rownames(deg_asv)
+    output <- rbind(output,deg_asv)
+  }
+}
+
+logFCC <- output[1:64,]
+logFCN <- output[65:212,]
+logFCP <- output[213:372,]
+
+logFCC2 <- merge(logFCC,gene_C[gene_C$KOEntry %in% rownames(C),][1:2],by.x = "KO",by.y = "KOEntry",sort = F,all = T)
+#N循环里有两个基因参加两个过程,所以多出8行
+logFCN2 <- merge(logFCN,gene_N[gene_N$KO %in% rownames(N),][4:3],by = "KO",sort = F,all = T)
+logFCP2 <- merge(logFCP,gene_P[gene_P$KOEntry %in% rownames(P),][1:2],by.x = "KO",by.y = "KOEntry",sort = F,all = T)
+# write.csv(logFCC2,"Carbon different gene.csv",row.names = F)
+# write.csv(logFCN2,"Nitrogen different gene.csv",row.names = F)
+# write.csv(logFCP2,"Phosphorus different gene.csv",row.names = F)
+
+listfc <- list(logFCC2,logFCN2,logFCP2)
+for (i in 1:3) {
+  a <- listfc[[i]]
+  pval <- a$FDR
+  star=ifelse(pval>0.1,"",ifelse(pval>0.05,".",ifelse(pval>0.01,"*",ifelse(pval>0.001,"**","***"))))
+  a$star <- star
+  a$text <- paste0(a$Gene,a$star)
+  listfc[[i]] <- a
+}
+PC <- listfc[[1]]
+PN <- listfc[[2]]
+PP <- listfc[[3]]
+
+logFCC3 <- spread(logFCC2[c(2,7,8)],key = "description",value = "logFC")
+logFCN3 <- spread(logFCN2[c(2,7,8)],key = "description",value = "logFC")
+logFCP3 <- spread(logFCP2[c(2,7,8)],key = "description",value = "logFC")
+
+rownames(logFCC3) <- logFCC3$Gene;logFCC3 <- logFCC3[-1]
+rownames(logFCN3) <- logFCN3$Enzyme_protein_encoded;logFCN3 <- logFCN3[-1]
+rownames(logFCP3) <- logFCP3$gene;logFCP3 <- logFCP3[-1]
+
+library(pheatmap)
+annotation_row <- gene_C[-c(6,15,16),][2:3];colnames(annotation_row)[2] <- "Category"
+rownames(annotation_row) <- annotation_row$Gene;annotation_row <- annotation_row[-1]
+annotation_col <- data.frame(treatment = c("N12CK","N22CK","O12CK","O22CK"),
+                             Comparison = c("N1-CK","N2-CK","O1-CK","O2-CK"))
+rownames(annotation_col) <- annotation_col$treatment;annotation_col <- annotation_col[-1]
+
+
+logFCC3 <- logFCC3[match(gene_C[-c(6,15,16),]$Gene,rownames(logFCC3)),]
+pheatmap(logFCC3,cluster_rows  = F,cluster_cols = F,
+         annotation_row = annotation_row,border = F,
+         annotation_col = annotation_col,
+         cellwidth = 20,cellheight = 12.36,
+         color = colorRampPalette(c("#6699cc","white","#ff6666"))(100),
+         display_numbers = T,fontsize_number = 6,
+         annotation_colors = list(Comparison = c(`N1-CK` = col[1],`N2-CK` = col[2],
+                                                 `O1-CK` = col[3],`O2-CK` = col[4]),
+                                  Category = c(C_degradation = col[5],
+                                               C_fixation = col[6])),
+         annotation_names_col = F,annotation_names_row = F,
+         show_colnames = F,
+         filename = "heatmap_C.pdf")
+library(RColorBrewer)
+display.brewer.all(n=NULL, type="all", select=NULL, exact.n=TRUE, 
+                   colorblindFriendly=FALSE)
+col <- brewer.pal(6,"Paired")
+
+annotation_row2 <- as.data.frame(gene_N[2:3]);colnames(annotation_row2)[1] <- "Category"
+rownames(annotation_row2) <- annotation_row2$Enzyme_protein_encoded;annotation_row2 <- annotation_row2[-2]
+gene_N2 <- gene_N[gene_N$Enzyme_protein_encoded %in% rownames(logFCN3),]
+logFCN3 <- logFCN3[match(gene_N2$Enzyme_protein_encoded,rownames(logFCN3)),]
+
+max(logFCN3);min(logFCN3)
+breaks <- seq(-min(logFCN3), min(logFCN3), length.out = 101)
+color = colorRampPalette(c("#6699cc","white","#ff6666"))(100)
+pheatmap(logFCN3,cluster_rows  = F,cluster_cols = F,
+         # annotation_row = annotation_row,
+         border = F,
+         annotation_col = annotation_col,
+         cellwidth = 20,cellheight = 12.36,
+         color = colorRampPalette(c("#6699cc","white","#ff6666"))(100),
+         display_numbers = T,fontsize_number = 6,
+         annotation_colors = list(Comparison = c(`N1-CK` = col[1],`N2-CK` = col[2],
+                                                 `O1-CK` = col[3],`O2-CK` = col[4])),
+         annotation_names_col = F,annotation_names_row = F,
+         breaks = breaks,
+         show_colnames = F),
+         filename = "heatmap_N.pdf")
+
+annotation_row3 <- as.data.frame(gene_P[2:3]);colnames(annotation_row3)[2] <- "Category"
+rownames(annotation_row3) <- annotation_row3$gene;annotation_row3 <- annotation_row3[-1]
+logFCP3 <- logFCP3[match(gene_P$gene,rownames(logFCP3)),]
+pheatmap(logFCP3,cluster_rows  = F,cluster_cols = F,
+         annotation_row = annotation_row3,
+         border = F,
+         annotation_col = annotation_col,
+         cellwidth = 20,cellheight = 12.36,
+         color = colorRampPalette(c("#6699cc","white","#ff6666"))(100),
+         display_numbers = T,fontsize_number = 6,
+         annotation_colors = list(Comparison = c(`N1-CK` = col[1],`N2-CK` = col[2],
+                                                 `O1-CK` = col[3],`O2-CK` = col[4])),
+         annotation_names_col = F,annotation_names_row = F,
+         show_colnames = F,
+         filename = "heatmap_P.pdf")
+getwd()
