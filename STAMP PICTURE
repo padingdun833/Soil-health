@@ -1,0 +1,135 @@
+##Stamp风格表
+# treatment <- factor(rep(c("CK","N1","N2","O1","O2"),each = 8),levels = c("CK","N1","N2","O1","O2"))
+library(DESeq2)
+coldata <- data.frame(Sample = rownames(ooo1),Treatment = treatment)
+rownames(coldata) <- coldata$Sample
+dds <- DESeqDataSetFromMatrix(t(ooo1),colData = coldata,design = ~Treatment)
+dds <- estimateSizeFactors(dds)
+sizeFactors(dds)
+normalized_counts <- counts(dds, normalized=TRUE)
+dfs1 <- data.frame(Sample = rownames(ooo1), as.data.frame(t(normalized_counts)),Group = treatment)
+#注意，as.data.frame函数会将列名中的"-"换成"."
+
+###O2 vs CK
+tmp1 <- dfs1[c(1:4,17:20),]
+tmp2 <- reshape2::melt(tmp1,values = -c(Sample,Group))
+tmp3 <- tmp2 %>% group_by(variable) %>% 
+  rstatix::wilcox_test(value ~Group,detailed = TRUE,ref.group = "O2")
+# tmp4 <- tmp3[tmp3$p < 0.05 & tmp3$estimate > 0,]
+tmp4 <- tmp3[tmp3$p < 0.05,]
+# sum(grepl("\\d", tmp4$variable))
+
+###O2 vs N1
+tmp1 <- dfs1[c(5:8,17:20),]
+tmp2 <- reshape2::melt(tmp1,values = -c(Sample,Group))
+tmp3 <- tmp2 %>% group_by(variable) %>% 
+  rstatix::wilcox_test(value ~Group,detailed = TRUE,ref.group = "O2")
+# tmp5 <- tmp3[tmp3$p < 0.05 & tmp3$estimate > 0,]
+tmp5 <- tmp3[tmp3$p < 0.05 ,]
+#盆栽土为N1,因此可视化N1与O2比较组
+ge <- intersect(tmp5$variable,tmp6$variable)
+tmp7 <- tmp5[tmp5$variable %in% ge,]
+
+###O2 vs N2
+tmp1 <- dfs1[c(9:12,17:20),]
+tmp2 <- reshape2::melt(tmp1,values = -c(Sample,Group))
+tmp3 <- tmp2 %>% group_by(variable) %>% 
+  rstatix::wilcox_test(value ~Group,detailed = TRUE,ref.group = "O2")
+# tmp6 <- tmp3[tmp3$p < 0.05 & tmp3$estimate > 0,]
+tmp6 <- tmp3[tmp3$p < 0.05,]
+
+df_stamp <- df_psedo[colnames(df_psedo)%in% gsub("\\.","\\-",ge)]
+df_stamp$Group <- treatment
+df_stamp2 <- reshape2::melt(df_stamp)
+df_stamp3 <- df_stamp2[df_stamp2$Group == "N1" | df_stamp2$Group == "O2",]
+library(tidyverse)
+library(magrittr)
+library(GGally)
+library(ggprism)
+library(patchwork)
+library(cowplot)
+library(ComplexHeatmap)
+library(ggbreak)
+# df_stamp3 <- df_stamp3[!df_stamp3$variable == "g_Sphingomonas",]
+p1 <- df_stamp3 %>% group_by(variable,Group)%>%
+  summarise(mean = mean(value),sd = sd(value))%>%
+  ggplot(aes(variable,mean,fill=Group))+
+  geom_errorbar(aes(ymax=mean+sd/sqrt(4),ymin=mean-sd/sqrt(4)),position=position_dodge(width=0.8),width=0.2,linewidth=0.5,color="black")+
+  geom_bar(stat="identity",position=position_dodge(width=0.8),width = 0.8)+
+  geom_stripped_cols()+
+  scale_fill_manual(values=c("#E69F00","#56B4E9"))+
+  scale_color_manual(values=c("#E69F00","#56B4E9"))+
+  theme_prism()+
+  scale_y_break(c(440,800),space = 0.05,scales = 0.3)+
+  scale_y_continuous(expand=c(0,0),guide="prism_offset_minor")+
+  labs(y="Normalized Abundance",x=NULL)+
+  theme(axis.ticks.y=element_blank(),
+        axis.line.y=element_blank(),
+        axis.line.x=element_line(size=0.5),
+        axis.ticks.x=element_line(size=0.5),
+        panel.grid.major.y=element_blank(),
+        panel.grid.major.x=element_blank(),
+        axis.text=element_text(size=10,color="black"),
+        axis.text.y=element_text(margin=margin(r=0)),
+        axis.text.x=element_text(size=10,color="black",margin=margin(b=6)),
+        axis.title.x=element_text(size=11,color="black",hjust=0.5),
+        legend.position="non")+
+  coord_flip()
+
+# tmp7 <- tmp7[!tmp7$variable == "g_Sphingomonas",]
+tmp7$variable <- gsub("\\.","\\-",tmp7$variable)
+df3 <- tmp7 %>% select(variable,estimate,conf.low,conf.high,p) %>% 
+  mutate(group=ifelse(tmp7$estimate >0,levels(df_stamp3$Group)[5],
+                      levels(df_stamp3$Group)[2])) %>% 
+  mutate(p_signif=symnum(p,corr = FALSE, na = FALSE,  
+                         cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1), 
+                         symbols = c("***", "**", "*", " ", ""))) %>% 
+  unite(.,col="p_value",p_signif,p,sep=" ",remove = T,na.rm = F) %>% 
+  mutate(p_value2 = c(1:12))
+
+p2 <- df3 %>% 
+  ggplot(aes(variable,estimate,fill = group))+
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high),
+                position = position_dodge(0.62), width = 0.2,size = 0.5) +
+  geom_point(aes(color=group),shape = 21,size=3) +
+  geom_hline(aes(yintercept = 0),linetype='dashed',color = 'black')+
+  geom_stripped_cols()+
+  labs(y="Difference between normalized abundance",x=NULL,title="95% confidence intervals")+
+  theme_prism()+
+  scale_y_continuous(expand=c(0,0),guide="prism_offset_minor") + 
+  scale_fill_manual(values=c("#E69F00","#56B4E9"))+
+  scale_color_manual(values=c("#E69F00","#56B4E9"))+
+  theme(axis.ticks.y=element_blank(),
+        axis.line.y = element_blank(),
+        axis.line.x=element_line(size=0.5),
+        axis.ticks.x = element_line(size=0.5),
+        panel.grid.major.y =element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.background = element_blank(),
+        axis.text.y=element_blank(),
+        plot.margin = unit(c(0,0.5,0,0),"cm"),
+        axis.text.x = element_text(size = 10,color = "black",margin=margin(b=6)),
+        axis.title.x =  element_text(size=10,color = "black",hjust = 0.5),
+        legend.position = "non",
+        plot.title = element_text(size = 11,colour = "black",hjust = 0.5)) +
+  coord_flip()
+
+p3 <- df3 %>% mutate(group2="a") %>% 
+  ggplot(aes(group2,p_value2))+
+  geom_text(aes(group2,p_value2,label=p_value),size=3.5,color="black") +
+  labs(y="P_value")+
+  scale_y_discrete(position = "right")+
+  theme_prism()+
+  theme(axis.ticks=element_blank(),
+        axis.line = element_blank(),
+        panel.grid.major.y =element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.background = element_blank(),
+        axis.text=element_blank(),
+        plot.margin = unit(c(0,0.2,0,0),"cm"),
+        axis.title.y =  element_text(size=11,color = "black",hjust = 0.5),
+        axis.title.x=element_blank(),
+        legend.position = "non") 
+# patch <- p2+p3
+p1+p2+p3+plot_layout(widths = c(2, 1,0.2))
+ggsave("stamp_picturex.pdf",width = 10,height = 6)
