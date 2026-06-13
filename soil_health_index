@@ -1,0 +1,74 @@
+library(Hmisc)
+df_env <- read.csv("env.csv",header=T,row.names=1)
+df_env <- df_env[-c(15,16)]
+##ph隶属度函数转换
+# df_env$pH <- 0.9*(df_env$pH - 7.5)/(8.5-7.5)+0.1
+df_env$pH <- 1-0.9*(df_env$pH - 7.5)/(8.5-7.5)
+####################标准化##############################
+# for(i in 1:ncol(df_env)){
+#   df_env[,i]<-(df_env[,i]-min(df_env[,i]))/(max(df_env[,i])-min(df_env[,i]))
+# }
+#可选标准化方式
+#center=F时不进行中心化，仅标准化
+env <- read.csv("21-23_env.csv",header = T,row.names = 1)
+# rownames(env) <- gsub("ON","O",rownames(env))
+group <- read.table("21-23_group.txt",header = T,row.names = 1)
+group <- group[rownames(group)%in%rownames(env),]
+# env <- cbind(env,group)
+df_env <- env
+df_env <- as.data.frame(scale(df_env,center=T,scale=T))
+# scale(matrix(1:4,nrow = 2),center = F)
+# write.csv(env,"21-23_env.csv")
+# 
+# r_env <- rcorr(as.matrix(df_env),type = "pearson")
+# 
+# r_env1 <- r_env$r
+# r_env2 <- r_env$P
+# 
+# #阈值筛选
+# r_env1[abs(r_env1) < 0.7] <- 0
+# #选取显著性 p 值小于 0.05 的相关系数，即 p<0.05
+# r_env2[r_env2>=0.05] <- -1
+# r_env2[r_env2<0.05 & r_env2>=0] <- 1
+# r_env2[r_env2==-1] <- 0
+# 
+# #根据上述筛选的 r 值和 p 值保留数据
+# z <- r_env1 * r_env2
+# diag(z) <- 0    #将相关矩阵中对角线中的值（代表了自相关）转为 0
+# head(z)[1:6,1:6]
+
+##############主成分分析################
+pc <- psych::principal(df_env,nfactors=4,rotate="none")
+# pc$loadings
+# pc$values/sum(pc$values)
+
+df_loading <- as.data.frame(unclass(pc$loadings))
+df_var <- as.data.frame(pc$Vaccounted)
+# rowSums(df_var[2,])#0.9277129
+df_loading2 <- df_loading
+for (i in 1:4) {
+  mid <- df_loading[,i,drop = F]/sqrt(df_var[1,i])
+  df_loading2 <- cbind(df_loading2,mid)
+}
+df_loading3 <- df_loading2
+for (i in c(1:4)) {
+  mid1 <- df_loading2[5:8]
+  mid2 <- mid1[,i,drop = F]*df_var[2,i]
+  df_loading3 <- cbind(df_loading3,mid2)
+}
+df_loading4 <- rowSums(df_loading3[9:12])
+# 单位1化：
+weights <- df_loading4/sum(df_loading4)
+
+
+df_envst_weights <- rbind(df_env,
+                          weights[match(colnames(df_env),names(weights))])
+df_SQI <- df_env
+for (i in 1:ncol(df_env)) {
+  mid <- df_env[,i,drop = F]*df_envst_weights[61,i]
+  df_SQI <- cbind(df_SQI,mid)
+}
+df_SQI2 <- df_SQI[-c(1:length(df_env))]
+colnames(df_SQI2)
+
+all <- rowSums(df_SQI2[c("DOC","TN","TC","NH4","NO3","AP","AK","BG","CBH","AKP")])
