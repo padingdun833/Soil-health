@@ -1,0 +1,24 @@
+library(readxl)
+library(pheatmap)
+dfpp <- read_excel("Strain_Physiology.xlsx")
+dfpp[is.na(dfpp)] <- " "
+dfpp$rowname <- gsub(" ","_",paste(dfpp$Strains,dfpp$Taxon))
+dfpp <- as.data.frame(dfpp)
+rownames(dfpp) <- dfpp$rowname
+
+pheatmap(dfpp[3:4],
+         cluster_cols = FALSE,
+         color = colorRampPalette(c("navy", "white", "firebrick3"))(50),
+         cellwidth = 20, cellheight = 13.5,
+         filename = "heatmap1.pdf")
+
+pheatmap(dfpp[3:4],
+         cluster_cols = FALSE,
+         color = colorRampPalette(c("white"))(50),
+         cellwidth = 20, cellheight = 13.5,
+         cluster_rows = T,
+         legend = F,
+         border = F,
+         display_numbers = dfpp[7:8],
+         filename = "heatmap2.pdf")
+dev.off()
