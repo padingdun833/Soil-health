@@ -1,0 +1,96 @@
+#敏感性分析：
+env <- read.csv("21-23_env.csv",header = T,row.names = 1)
+df_env <- env
+df_env <- as.data.frame(scale(df_env,center=F,scale=T))
+
+##############主成分分析################
+pc <- psych::principal(df_env,nfactors=4,rotate="none")
+df_loading <- as.data.frame(unclass(pc$loadings))
+df_var <- as.data.frame(pc$Vaccounted)
+df_loading2 <- df_loading
+for (i in 1:4) {
+  mid <- df_loading[,i,drop = F]/sqrt(df_var[1,i])
+  df_loading2 <- cbind(df_loading2,mid)
+}
+df_loading3 <- df_loading2
+for (i in c(1:4)) {
+  mid1 <- df_loading2[5:8]
+  mid2 <- mid1[,i,drop = F]*df_var[2,i]
+  df_loading3 <- cbind(df_loading3,mid2)
+}
+df_loading4 <- rowSums(df_loading3[9:12])
+# 单位1化：
+original_weights <- df_loading4/sum(df_loading4)
+
+# Bootstrap PCA权重敏感性分析
+library(tidyverse)
+
+set.seed(123)
+n_boot <- 999
+n_vars <- ncol(env)  # 你的指标数量
+
+# 存储每次bootstrap的权重
+boot_weights <- matrix(NA, nrow = n_boot, ncol = n_vars)
+colnames(boot_weights) <- colnames(env)
+
+for (j in 1:n_boot) {
+  df_tmp <- matrix(NA, nrow = 60, ncol = ncol(env))
+  colnames(df_tmp) <- colnames(env)
+  for (z in 1:ncol(env)) {
+    # 生成1:60的向量
+    x <- 1:60
+    # 每4个数分成一组，共15组
+    groups <- split(x, ceiling(seq_along(x) / 4))
+    # 从每组中随机抽取1个数
+    # set.seed(123)  # 设置随机种子，确保结果可重现
+    result_all <- NULL
+    for (y in 1:4) {
+      result <- unname(sapply(groups, sample, size = 1))
+      result_all <- c(result_all,result)
+    }
+    df_tmp[, z] <- env[,z,drop = T][result_all]
+  }
+  
+  df_env <- df_tmp
+
+  # boot_idx <- sample(1:nrow(env), size = nrow(env)*0.8, replace = F)
+  # boot_data <- env[boot_idx, ]
+  # df_env <- boot_data
+  
+  df_env <- as.data.frame(scale(df_env,center=T,scale=T))
+  
+  ##############主成分分析################
+  pc <- psych::principal(df_env,nfactors=4,rotate="none")
+  df_loading <- as.data.frame(unclass(pc$loadings))
+  df_var <- as.data.frame(pc$Vaccounted)
+  df_loading2 <- df_loading
+  for (i in 1:4) {
+    mid <- df_loading[,i,drop = F]/sqrt(df_var[1,i])
+    df_loading2 <- cbind(df_loading2,mid)
+  }
+  df_loading3 <- df_loading2
+  for (i in c(1:4)) {
+    mid1 <- df_loading2[5:8]
+    mid2 <- mid1[,i,drop = F]*df_var[2,i]
+    df_loading3 <- cbind(df_loading3,mid2)
+  }
+  df_loading4 <- rowSums(df_loading3[9:12])
+  # 单位1化：
+  weights <- df_loading4/sum(df_loading4)
+  
+  boot_weights[j, ] <- weights
+  # df_loading <- NULL;df_loading2 <- NULL;df_loading3 <- NULL;df_loading4 <- NULL
+}
+
+# 计算95%置信区间
+ci_lower <- apply(boot_weights, 2, quantile, probs = 0.025)
+ci_upper <- apply(boot_weights, 2, quantile, probs = 0.975)
+
+# 结果汇总
+results <- data.frame(
+  Indicator = colnames(env),
+  Weight = original_weights,  # 你原来的权重
+  CI_lower = ci_lower,
+  CI_upper = ci_upper
+)
+print(results)
